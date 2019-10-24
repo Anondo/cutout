@@ -1,7 +1,6 @@
-package cb
+package cutout
 
 import (
-	"bytes"
 	"time"
 )
 
@@ -11,7 +10,7 @@ type CircuitBreaker struct {
 	TimeOut           time.Duration
 	HealthCheckPeriod time.Duration
 	state             string
-	lastFailed        time.Time
+	lastFailed        *time.Time
 	failCount         int
 }
 
@@ -25,8 +24,32 @@ func NewCircuitBreaker(failThreshold int, timeout, healthCheckPeriod time.Durati
 }
 
 // Call calls an external service
-func (c *CircuitBreaker) Call(url, method string, respBody bytes.Buffer, fallbackFuncs ...func() error) (Response, error) {
+func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, error)) (*Response, error) {
 	c.setState()
 
-	return Response{}, nil
+	var resp *Response
+	var err error
+
+	switch c.state {
+	case ClosedState, HalfOpenState:
+		resp, err = c.makeRequest(req)
+		if err != nil {
+			c.updateFailData()
+		} else {
+			c.resetCircuit()
+		}
+	case OpenState:
+		resp, err = executeFallbacks(fallbackFuncs)
+		if err != nil {
+			return resp, err
+		}
+	}
+
+	return resp, err
+}
+
+func (c *CircuitBreaker) updateFailData() {
+	now := time.Now()
+	c.lastFailed = &now
+	c.failCount++
 }
