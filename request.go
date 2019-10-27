@@ -5,15 +5,30 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 )
 
-// Request ...
+// Request represents the data needed to make http requests
 type Request struct {
 	URL           string
 	Method        string
 	RequestBody   *bytes.Buffer
 	Headers       map[string]string
 	AllowedStatus []int
+	TimeOut       time.Duration
+}
+
+// NewRequest is the factory function for requests i.e, creates a new request
+func NewRequest(url, method string, headers map[string]string,
+	requestBody *bytes.Buffer, allowedStatus []int, timeout time.Duration) Request {
+	return Request{
+		URL:           url,
+		Method:        method,
+		RequestBody:   requestBody,
+		Headers:       headers,
+		AllowedStatus: allowedStatus,
+		TimeOut:       timeout,
+	}
 }
 
 func (r *Request) isAllowedStatus(status int) bool {
@@ -25,7 +40,7 @@ func (r *Request) isAllowedStatus(status int) bool {
 	return false
 }
 
-func (c *CircuitBreaker) makeRequest(r Request) (*Response, error) {
+func (r *Request) makeRequest() (*Response, error) {
 
 	req := &http.Request{}
 
@@ -48,7 +63,7 @@ func (c *CircuitBreaker) makeRequest(r Request) (*Response, error) {
 	}
 
 	client := http.Client{}
-	ctx, cancel := context.WithTimeout(context.Background(), c.TimeOut)
+	ctx, cancel := context.WithTimeout(context.Background(), r.TimeOut)
 	defer cancel()
 	req = req.WithContext(ctx)
 

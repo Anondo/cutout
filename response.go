@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 )
 
-// Response ...
+// Response represents the response data from an http service
 type Response struct {
 	StatusCode int
 	Body       string

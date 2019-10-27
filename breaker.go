@@ -7,7 +7,6 @@ import (
 // CircuitBreaker is the circuit breaker!!!
 type CircuitBreaker struct {
 	FailThreshold     int
-	TimeOut           time.Duration
 	HealthCheckPeriod time.Duration
 	state             string
 	lastFailed        *time.Time
@@ -15,15 +14,14 @@ type CircuitBreaker struct {
 }
 
 // NewCircuitBreaker creates a new circuit breaker
-func NewCircuitBreaker(failThreshold int, timeout, healthCheckPeriod time.Duration) *CircuitBreaker {
+func NewCircuitBreaker(failThreshold int, healthCheckPeriod time.Duration) *CircuitBreaker {
 	return &CircuitBreaker{
 		FailThreshold:     failThreshold,
-		TimeOut:           timeout,
 		HealthCheckPeriod: healthCheckPeriod,
 	}
 }
 
-// Call calls an external service
+// Call calls an external service using the circuit breaker design
 func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, error)) (*Response, error) {
 	c.setState()
 
@@ -32,7 +30,7 @@ func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, e
 
 	switch c.state {
 	case ClosedState, HalfOpenState:
-		resp, err = c.makeRequest(req)
+		resp, err = req.makeRequest()
 		if err != nil {
 			c.updateFailData()
 		} else {
