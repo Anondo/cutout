@@ -8,6 +8,7 @@ import (
 type CircuitBreaker struct {
 	FailThreshold     int
 	HealthCheckPeriod time.Duration
+	events            chan string
 	state             string
 	lastFailed        *time.Time
 	failCount         int
@@ -44,10 +45,4 @@ func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, e
 	}
 
 	return resp, err
-}
-
-func (c *CircuitBreaker) updateFailData() {
-	now := time.Now()
-	c.lastFailed = &now
-	c.failCount++
 }
