@@ -78,17 +78,16 @@ func (r *Request) makeRequest() (*Response, error) {
 		return nil, err
 	}
 
+	finalResponse := &Response{resp, bdy}
+
 	if len(r.AllowedStatus) != 0 {
 		if !r.isAllowedStatus(resp.StatusCode) {
-			return nil, errors.New(bdy)
+			return finalResponse, errors.New(bdy)
 		}
 	} else if resp.StatusCode >= 400 {
-		return nil, errors.New(bdy)
+		return finalResponse, errors.New(bdy)
 	}
 
-	return &Response{
-		StatusCode: resp.StatusCode,
-		Body:       bdy,
-	}, nil
+	return finalResponse, nil
 
 }

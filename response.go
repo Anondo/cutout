@@ -3,12 +3,13 @@ package cutout
 import (
 	"io"
 	"io/ioutil"
+	"net/http"
 )
 
 // Response represents the response data from an http service
 type Response struct {
-	StatusCode int
-	Body       string
+	*http.Response
+	BodyString string
 }
 
 func getRespBodyString(bdy io.Reader) (string, error) {
