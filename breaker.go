@@ -1,6 +1,7 @@
 package cutout
 
 import (
+	"net/http"
 	"time"
 )
 
@@ -32,6 +33,32 @@ func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, e
 	switch c.state {
 	case ClosedState, HalfOpenState:
 		resp, err = req.makeRequest()
+		if err != nil {
+			c.updateFailData()
+		} else {
+			c.resetCircuit()
+		}
+	case OpenState:
+		resp, err = executeFallbacks(fallbackFuncs)
+		if err != nil {
+			return resp, err
+		}
+	}
+
+	return resp, err
+}
+
+// CallWithCustomRequest calls an external service using the circuit breaker design with a custom request function
+func (c *CircuitBreaker) CallWithCustomRequest(req *http.Request, allowedStatus []int,
+	fallbackFuncs ...func() (*Response, error)) (*Response, error) {
+	c.setState()
+
+	var resp *Response
+	var err error
+
+	switch c.state {
+	case ClosedState, HalfOpenState:
+		resp, err = makeCustomRequest(req, allowedStatus)
 		if err != nil {
 			c.updateFailData()
 		} else {

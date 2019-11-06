@@ -91,3 +91,32 @@ func (r *Request) makeRequest() (*Response, error) {
 	return finalResponse, nil
 
 }
+
+func makeCustomRequest(req *http.Request, allowedStatus []int) (*Response, error) {
+
+	client := http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	bdy, err := getRespBodyString(resp.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	finalResponse := &Response{resp, bdy}
+
+	if len(allowedStatus) != 0 {
+		r := &Request{AllowedStatus: allowedStatus}
+		if !r.isAllowedStatus(resp.StatusCode) {
+			return finalResponse, errors.New(bdy)
+		}
+	} else if resp.StatusCode >= 400 {
+		return finalResponse, errors.New(bdy)
+	}
+
+	return finalResponse, nil
+}
