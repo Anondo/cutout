@@ -1,9 +1,11 @@
 package cutout
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,25 +14,49 @@ import (
 )
 
 var (
-	numberOfCalls = 5
-	url           = "127.0.0.1:9001"
+	numberOfCalls       = 5
+	mockServerURL       = "127.0.0.1:9001"
+	mockServerURLCustom = "127.0.0.1:9002"
 )
 
-func TestResponseRecorder(t *testing.T) {
+func TestCircuitBreakerCall(t *testing.T) {
 
-	cb := &CircuitBreaker{
-		FailThreshold:     2,
-		HealthCheckPeriod: 5 * time.Second,
-	}
+	cb := NewCircuitBreaker(2, 5*time.Second)
 
-	ts := testServer()
+	ts := testServer(mockServerURL)
 
 	cache := `{"name":"Mr. Test","age":69,"cgpa":4}`
 
 	defer ts.Close()
 
-	handler := testHandler(ts, cb, cache)
+	handler := testCallHandler(ts.URL, cb, cache)
 
+	if err := startIntegrationTest(t, mockServerURL, ts, cb, handler); err != nil {
+		t.Errorf(err.Error())
+	}
+
+}
+
+func TestCircuitBreakerCallWithCustomRequest(t *testing.T) {
+
+	cb := NewCircuitBreaker(2, 5*time.Second)
+
+	ts := testServer(mockServerURLCustom)
+
+	cache := `{"name":"Mr. Test","age":69,"cgpa":4}`
+
+	defer ts.Close()
+
+	handler := testCallWithCustomRequestHandler(ts.URL, cb, cache)
+
+	if err := startIntegrationTest(t, mockServerURLCustom, ts, cb, handler); err != nil {
+		t.Errorf(err.Error())
+	}
+
+}
+
+func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *CircuitBreaker,
+	handler func(w http.ResponseWriter, r *http.Request)) error {
 	// #########################
 	// # Checking closed state #
 	// #########################
@@ -38,9 +64,10 @@ func TestResponseRecorder(t *testing.T) {
 	t.Log("Checking closed state...")
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusOK, 0)
-		if err := checkForErrors(testCall(handler), cb, http.StatusOK, ClosedState, 0); err != nil {
-			t.Errorf(err.Error())
-			return
+		resp := testCall(handler)
+		if err := checkForErrors(http.StatusOK, resp.StatusCode, ClosedState,
+			cb.State(), 0, cb.FailCount()); err != nil {
+			return err
 		}
 	}
 
@@ -55,9 +82,10 @@ func TestResponseRecorder(t *testing.T) {
 	t.Log("Checking fail threshold...")
 	for i := 0; i < cb.FailThreshold; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusInternalServerError, i+1)
-		if err := checkForErrors(testCall(handler), cb, http.StatusInternalServerError, ClosedState, i+1); err != nil {
-			t.Errorf(err.Error())
-			return
+		resp := testCall(handler)
+		if err := checkForErrors(http.StatusInternalServerError, resp.StatusCode,
+			ClosedState, cb.State(), i+1, cb.FailCount()); err != nil {
+			return err
 		}
 	}
 
@@ -70,9 +98,10 @@ func TestResponseRecorder(t *testing.T) {
 	t.Log("Checking open state...")
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, OpenState, http.StatusOK, cb.FailThreshold)
-		if err := checkForErrors(testCall(handler), cb, http.StatusOK, OpenState, cb.FailThreshold); err != nil {
-			t.Errorf(err.Error())
-			return
+		resp := testCall(handler)
+		if err := checkForErrors(http.StatusOK, resp.StatusCode, OpenState,
+			cb.State(), cb.FailThreshold, cb.FailCount()); err != nil {
+			return err
 		}
 	}
 
@@ -86,9 +115,10 @@ func TestResponseRecorder(t *testing.T) {
 	// ############################
 	t.Log("Checking half open state...")
 	t.Logf("state:%s, status:%d, fail count:%d\n", HalfOpenState, http.StatusInternalServerError, cb.FailThreshold+1)
-	if err := checkForErrors(testCall(handler), cb, http.StatusInternalServerError, HalfOpenState, cb.FailThreshold+1); err != nil {
-		t.Errorf(err.Error())
-		return
+	respStatusCode := testCall(handler).StatusCode
+	if err := checkForErrors(http.StatusInternalServerError, respStatusCode,
+		HalfOpenState, cb.State(), cb.FailThreshold+1, cb.FailCount()); err != nil {
+		return err
 	}
 
 	t.Log("PASSED")
@@ -99,15 +129,16 @@ func TestResponseRecorder(t *testing.T) {
 	t.Log("Checking open state after the half open state...")
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, OpenState, http.StatusOK, cb.FailThreshold+1)
-		if err := checkForErrors(testCall(handler), cb, http.StatusOK, OpenState, cb.FailThreshold+1); err != nil {
-			t.Errorf(err.Error())
-			return
+		resp := testCall(handler)
+		if err := checkForErrors(http.StatusOK, resp.StatusCode, OpenState,
+			cb.State(), cb.FailThreshold+1, cb.FailCount()); err != nil {
+			return err
 		}
 	}
 
 	t.Log("PASSED")
 
-	ts = testServer() // restarting the third-party service
+	ts = testServer(url) // restarting the third-party service
 
 	t.Logf("Waiting %v for half open state...\n", cb.HealthCheckPeriod)
 	time.Sleep(cb.HealthCheckPeriod)
@@ -117,9 +148,10 @@ func TestResponseRecorder(t *testing.T) {
 	// #######################################
 	t.Log("Checking the second half open state...")
 	t.Logf("state:%s, status:%d, fail count:%d\n", HalfOpenState, http.StatusOK, 0)
-	if err := checkForErrors(testCall(handler), cb, http.StatusOK, HalfOpenState, 0); err != nil {
-		t.Errorf(err.Error())
-		return
+	respStatusCode = testCall(handler).StatusCode
+	if err := checkForErrors(http.StatusOK, respStatusCode, HalfOpenState,
+		cb.State(), 0, cb.FailCount()); err != nil {
+		return err
 	}
 
 	t.Log("PASSED")
@@ -130,14 +162,16 @@ func TestResponseRecorder(t *testing.T) {
 	t.Log("Checking closed state after half open, as the server came live")
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusOK, 0)
-		if err := checkForErrors(testCall(handler), cb, http.StatusOK, ClosedState, 0); err != nil {
-			t.Errorf(err.Error())
-			return
+		resp := testCall(handler)
+		if err := checkForErrors(http.StatusOK, resp.StatusCode, ClosedState,
+			cb.State(), 0, cb.FailCount()); err != nil {
+			return err
 		}
 	}
 
 	t.Log("PASSED")
 
+	return nil
 }
 
 func testCall(handler func(w http.ResponseWriter, r *http.Request)) *http.Response {
@@ -153,24 +187,24 @@ func testCall(handler func(w http.ResponseWriter, r *http.Request)) *http.Respon
 
 }
 
-func checkForErrors(resp *http.Response, cb *CircuitBreaker, status int,
-	state string, failCount int) error {
-	if resp.StatusCode != status {
-		return fmt.Errorf("Incorrent status code received, wanted %d got %d", status, resp.StatusCode)
+func checkForErrors(wantStatus, gotStatus int,
+	wantState, gotState string, wantFailCount, gotFailCount int) error {
+	if wantStatus != gotStatus {
+		return fmt.Errorf("Incorrent status code received, wanted %d got %d", wantStatus, gotStatus)
 	}
 
-	if cb.State() != state {
-		return fmt.Errorf("Incorrect state of the circuit received, wanted %s got %s", state, cb.State())
+	if wantState != gotState {
+		return fmt.Errorf("Incorrect state of the circuit received, wanted %s got %s", wantState, gotState)
 	}
 
-	if cb.FailCount() != failCount {
-		return fmt.Errorf("Fail count should have been %d, got %d", failCount, cb.FailCount())
+	if wantFailCount != gotFailCount {
+		return fmt.Errorf("Fail count should have been %d, got %d", wantFailCount, gotFailCount)
 	}
 
 	return nil
 }
 
-func testServer() *httptest.Server {
+func testServer(url string) *httptest.Server {
 	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-type", "application/json")
 
@@ -189,7 +223,11 @@ func testServer() *httptest.Server {
 		fmt.Fprintf(w, string(bb))
 	}))
 
-	lstnr, _ := net.Listen("tcp", url)
+	lstnr, err := net.Listen("tcp", url)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 	ts.Listener = lstnr
 
 	ts.Start()
@@ -197,16 +235,51 @@ func testServer() *httptest.Server {
 	return ts
 }
 
-func testHandler(ts *httptest.Server, cb *CircuitBreaker, cache string) func(http.ResponseWriter, *http.Request) {
+func testCallHandler(url string, cb *CircuitBreaker, cache string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-type", "application/json")
 		req := Request{
-			URL:           ts.URL,
+			URL:           url,
 			AllowedStatus: []int{http.StatusOK},
 			Method:        http.MethodGet,
 			TimeOut:       2 * time.Second,
 		}
 		resp, err := cb.Call(req, func() (*Response, error) {
+			return &Response{
+				BodyString: cache,
+				Response: &http.Response{
+					StatusCode: http.StatusOK,
+				},
+			}, nil
+		})
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"message": "Something went wrong","error":`+fmt.Sprintf(`"%s"`, err.Error()))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, resp.BodyString)
+	}
+}
+
+func testCallWithCustomRequestHandler(url string, cb *CircuitBreaker, cache string) func(http.ResponseWriter,
+	*http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-type", "application/json")
+
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, `{"message": "Something went wrong","error":`+fmt.Sprintf(`"%s"`, err.Error()))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+		resp, err := cb.CallWithCustomRequest(req, []int{http.StatusOK}, func() (*Response, error) {
 			return &Response{
 				BodyString: cache,
 				Response: &http.Response{
