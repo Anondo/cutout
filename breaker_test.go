@@ -13,15 +13,38 @@ import (
 	"time"
 )
 
-var (
+const (
 	numberOfCalls       = 5
 	mockServerURL       = "127.0.0.1:9001"
 	mockServerURLCustom = "127.0.0.1:9002"
 )
 
+type (
+	testEventInfo struct {
+		currentState *string
+		failed       bool
+	}
+)
+
 func TestCircuitBreakerCall(t *testing.T) {
 
 	cb := NewCircuitBreaker(2, 5*time.Second)
+
+	event := make(chan string, 1)
+	cb.InitEvent(event)
+	tei := &testEventInfo{}
+
+	go func() {
+		for {
+			switch <-event {
+			case StateChangeEvent:
+				state := cb.State()
+				tei.currentState = &state
+			case FailureEvent:
+				tei.failed = true
+			}
+		}
+	}()
 
 	ts := testServer(mockServerURL)
 
@@ -31,7 +54,7 @@ func TestCircuitBreakerCall(t *testing.T) {
 
 	handler := testCallHandler(ts.URL, cb, cache)
 
-	if err := startIntegrationTest(t, mockServerURL, ts, cb, handler); err != nil {
+	if err := startIntegrationTest(t, mockServerURL, ts, cb, handler, tei); err != nil {
 		t.Errorf(err.Error())
 	}
 
@@ -41,6 +64,22 @@ func TestCircuitBreakerCallWithCustomRequest(t *testing.T) {
 
 	cb := NewCircuitBreaker(2, 5*time.Second)
 
+	event := make(chan string, 1)
+	cb.InitEvent(event)
+	tei := &testEventInfo{}
+
+	go func() {
+		for {
+			switch <-event {
+			case StateChangeEvent:
+				state := cb.State()
+				tei.currentState = &state
+			case FailureEvent:
+				tei.failed = true
+			}
+		}
+	}()
+
 	ts := testServer(mockServerURLCustom)
 
 	cache := `{"name":"Mr. Test","age":69,"cgpa":4}`
@@ -49,14 +88,14 @@ func TestCircuitBreakerCallWithCustomRequest(t *testing.T) {
 
 	handler := testCallWithCustomRequestHandler(ts.URL, cb, cache)
 
-	if err := startIntegrationTest(t, mockServerURLCustom, ts, cb, handler); err != nil {
+	if err := startIntegrationTest(t, mockServerURLCustom, ts, cb, handler, tei); err != nil {
 		t.Errorf(err.Error())
 	}
 
 }
 
 func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *CircuitBreaker,
-	handler func(w http.ResponseWriter, r *http.Request)) error {
+	handler func(w http.ResponseWriter, r *http.Request), tei *testEventInfo) error {
 	// #########################
 	// # Checking closed state #
 	// #########################
@@ -65,8 +104,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusOK, 0)
 		resp := testCall(handler)
-		if err := checkForErrors(http.StatusOK, resp.StatusCode, ClosedState,
+		if err := checkErrors(http.StatusOK, resp.StatusCode, ClosedState,
 			cb.State(), 0, cb.FailCount()); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond) //waiting for the event to fire, just for this test
+		if err := checkEvents(tei, ClosedState, false); err != nil {
 			return err
 		}
 	}
@@ -83,8 +126,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	for i := 0; i < cb.FailThreshold; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusInternalServerError, i+1)
 		resp := testCall(handler)
-		if err := checkForErrors(http.StatusInternalServerError, resp.StatusCode,
+		if err := checkErrors(http.StatusInternalServerError, resp.StatusCode,
 			ClosedState, cb.State(), i+1, cb.FailCount()); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+		if err := checkEvents(tei, ClosedState, true); err != nil {
 			return err
 		}
 	}
@@ -99,8 +146,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, OpenState, http.StatusOK, cb.FailThreshold)
 		resp := testCall(handler)
-		if err := checkForErrors(http.StatusOK, resp.StatusCode, OpenState,
+		if err := checkErrors(http.StatusOK, resp.StatusCode, OpenState,
 			cb.State(), cb.FailThreshold, cb.FailCount()); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+		if err := checkEvents(tei, OpenState, false); err != nil {
 			return err
 		}
 	}
@@ -116,8 +167,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	t.Log("Checking half open state...")
 	t.Logf("state:%s, status:%d, fail count:%d\n", HalfOpenState, http.StatusInternalServerError, cb.FailThreshold+1)
 	respStatusCode := testCall(handler).StatusCode
-	if err := checkForErrors(http.StatusInternalServerError, respStatusCode,
+	if err := checkErrors(http.StatusInternalServerError, respStatusCode,
 		HalfOpenState, cb.State(), cb.FailThreshold+1, cb.FailCount()); err != nil {
+		return err
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := checkEvents(tei, HalfOpenState, true); err != nil {
 		return err
 	}
 
@@ -130,8 +185,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, OpenState, http.StatusOK, cb.FailThreshold+1)
 		resp := testCall(handler)
-		if err := checkForErrors(http.StatusOK, resp.StatusCode, OpenState,
+		if err := checkErrors(http.StatusOK, resp.StatusCode, OpenState,
 			cb.State(), cb.FailThreshold+1, cb.FailCount()); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+		if err := checkEvents(tei, OpenState, false); err != nil {
 			return err
 		}
 	}
@@ -149,8 +208,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	t.Log("Checking the second half open state...")
 	t.Logf("state:%s, status:%d, fail count:%d\n", HalfOpenState, http.StatusOK, 0)
 	respStatusCode = testCall(handler).StatusCode
-	if err := checkForErrors(http.StatusOK, respStatusCode, HalfOpenState,
+	if err := checkErrors(http.StatusOK, respStatusCode, HalfOpenState,
 		cb.State(), 0, cb.FailCount()); err != nil {
+		return err
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := checkEvents(tei, HalfOpenState, false); err != nil {
 		return err
 	}
 
@@ -163,8 +226,12 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 	for i := 0; i < numberOfCalls; i++ {
 		t.Logf("Call:%d, state:%s, status:%d, fail count:%d\n", i+1, ClosedState, http.StatusOK, 0)
 		resp := testCall(handler)
-		if err := checkForErrors(http.StatusOK, resp.StatusCode, ClosedState,
+		if err := checkErrors(http.StatusOK, resp.StatusCode, ClosedState,
 			cb.State(), 0, cb.FailCount()); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+		if err := checkEvents(tei, ClosedState, false); err != nil {
 			return err
 		}
 	}
@@ -187,7 +254,7 @@ func testCall(handler func(w http.ResponseWriter, r *http.Request)) *http.Respon
 
 }
 
-func checkForErrors(wantStatus, gotStatus int,
+func checkErrors(wantStatus, gotStatus int,
 	wantState, gotState string, wantFailCount, gotFailCount int) error {
 	if wantStatus != gotStatus {
 		return fmt.Errorf("Incorrent status code received, wanted %d got %d", wantStatus, gotStatus)
@@ -297,4 +364,21 @@ func testCallWithCustomRequestHandler(url string, cb *CircuitBreaker, cache stri
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, resp.BodyString)
 	}
+}
+
+func checkEvents(tei *testEventInfo, wantState string, wantFail bool) error {
+	if tei.currentState == nil {
+		return fmt.Errorf("Invalid state received, wanted:%s, got:%v", wantState, tei.currentState)
+	}
+	if *tei.currentState != wantState {
+		return fmt.Errorf("Unexpected state received from event, wanted %s got %s", wantState, *tei.currentState)
+	}
+
+	if tei.failed != wantFail {
+		return fmt.Errorf("Unexpected failure event, wanted failure to be:%v, got:%v", wantFail, tei.failed)
+	}
+
+	tei.failed = false
+
+	return nil
 }
