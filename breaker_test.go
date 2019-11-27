@@ -311,7 +311,7 @@ func testCallHandler(url string, cb *CircuitBreaker, cache string) func(http.Res
 			Method:        http.MethodGet,
 			TimeOut:       2 * time.Second,
 		}
-		resp, err := cb.Call(req, func() (*Response, error) {
+		resp, err := cb.Call(&req, func() (*Response, error) {
 			return &Response{
 				BodyString: cache,
 				Response: &http.Response{

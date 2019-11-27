@@ -24,7 +24,7 @@ func NewCircuitBreaker(failThreshold int, healthCheckPeriod time.Duration) *Circ
 }
 
 // Call calls an external service using the circuit breaker design
-func (c *CircuitBreaker) Call(req Request, fallbackFuncs ...func() (*Response, error)) (*Response, error) {
+func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, error)) (*Response, error) {
 	c.setState()
 
 	var resp *Response

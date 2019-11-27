@@ -16,6 +16,7 @@ type Request struct {
 	Headers       map[string]string
 	AllowedStatus []int
 	TimeOut       time.Duration
+	BackOff       func(time.Duration) time.Duration
 }
 
 // NewRequest is the factory function for requests i.e, creates a new request
@@ -63,12 +64,16 @@ func (r *Request) makeRequest() (*Response, error) {
 	}
 
 	client := http.Client{}
+
 	ctx, cancel := context.WithTimeout(context.Background(), r.TimeOut)
 	defer cancel()
 	req = req.WithContext(ctx)
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if r.BackOff != nil {
+			r.TimeOut = r.BackOff(r.TimeOut)
+		}
 		return nil, err
 	}
 
