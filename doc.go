@@ -5,7 +5,7 @@
 //
 // 1. Multilevel fallback functions(in case even the fallback fails)
 //
-// 2. Customer BackOff function on the request level for generating backoff timeout logics
+// 2. Custom BackOff function on the request level for generating backoff timeout logics
 //
 // 3. Event channel to capture events like State change or failure detection
 //

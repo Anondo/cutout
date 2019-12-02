@@ -12,7 +12,7 @@ for calling third party api services.
 Cutout comes with features like:
 
 1. Multilevel fallback functions(in case even the fallback fails)
-1. Customer BackOff function on the request level for generating backoff timeout logics
+1. Custom BackOff function on the request level for generating backoff timeout logics
 1. Event channel to capture events like State change or failure detection
 
 ### Installing

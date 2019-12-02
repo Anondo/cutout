@@ -24,6 +24,20 @@ func NewCircuitBreaker(failThreshold int, healthCheckPeriod time.Duration) *Circ
 }
 
 // Call calls an external service using the circuit breaker design
+//
+// Parameters:
+//
+// 1. *cutout.Request -------> The request object
+//
+// 2. ...func()(*Response , error) -----> one or many fallback functions which must return a *cutout.Response & error instance
+//
+// Example:
+//
+//  resp, err := cb.Call(&req, func() (*cutout.Response, error) {
+// 	 return &cutout.Response{
+// 	 	 BodyString: cache,
+//   }, nil
+//  })
 func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, error)) (*Response, error) {
 	c.setState()
 
@@ -49,6 +63,33 @@ func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, 
 }
 
 // CallWithCustomRequest calls an external service using the circuit breaker design with a custom request function
+//
+// Parameters:
+//
+// 1. *http.Request -------> The request object of the built-in http package
+//
+// 2. []int -------> Allowed http status codes, which wont be counted as failures
+//
+// 3. ...func()(*Response , error) -----> one or many fallback functions which must return a *cutout.Response & error instance
+//
+// Example:
+//
+//  req, err := http.NewRequest(http.MethodGet, url, nil)
+//  if err != nil {
+// 	return err
+//  }
+//
+//  ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+//  defer cancel()
+//  req = req.WithContext(ctx)
+//  resp, err := cb.CallWithCustomRequest(req, []int{http.StatusOK}, func() (*Response, error) {
+// 	 return &Response{
+// 		 BodyString: cache,
+// 		 Response: &http.Response{
+// 			 StatusCode: http.StatusOK,
+// 		 },
+// 	 }, nil
+//  })
 func (c *CircuitBreaker) CallWithCustomRequest(req *http.Request, allowedStatus []int,
 	fallbackFuncs ...func() (*Response, error)) (*Response, error) {
 	c.setState()
