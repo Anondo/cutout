@@ -13,6 +13,7 @@ type CircuitBreaker struct {
 	state             string
 	lastFailed        *time.Time
 	failCount         int
+	analytics         *Analytics
 }
 
 // NewCircuitBreaker creates a new circuit breaker
@@ -49,7 +50,17 @@ func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, 
 		resp, err = req.makeRequest()
 		if err != nil {
 			c.updateFailData()
+			if c.analytics != nil {
+				c.analytics.Failures = append(c.analytics.Failures, Failure{
+					Message:       err.Error(),
+					OccurredAt:    time.Now(),
+					TotalFailures: c.analytics.TotalFailures + 1,
+				})
+			}
 		} else {
+			if c.analytics != nil {
+				c.analytics.RequestSent++
+			}
 			c.resetCircuit()
 		}
 	case OpenState:
@@ -57,6 +68,15 @@ func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, 
 		if err != nil {
 			return resp, err
 		}
+		if c.analytics != nil {
+			c.analytics.FallbackCalls++
+		}
+	}
+
+	if c.analytics != nil {
+		c.analytics.TotalCalls++
+		c.analytics.SuccessRate = float64(c.analytics.RequestSent+c.analytics.FallbackCalls) / float64(c.analytics.TotalCalls) * 100
+		c.analytics.FailureRate = 100 - c.analytics.SuccessRate
 	}
 
 	return resp, err
