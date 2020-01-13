@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ func TestCircuitBreakerCall(t *testing.T) {
 
 	event := make(chan string, 1)
 	cb.InitEvent(event)
+	cb.InitAnalytics()
 	tei := &testEventInfo{}
 
 	go func() {
@@ -66,6 +68,7 @@ func TestCircuitBreakerCallWithCustomRequest(t *testing.T) {
 
 	event := make(chan string, 1)
 	cb.InitEvent(event)
+	cb.InitAnalytics()
 	tei := &testEventInfo{}
 
 	go func() {
@@ -238,6 +241,10 @@ func startIntegrationTest(t *testing.T, url string, ts *httptest.Server, cb *Cir
 
 	t.Log("PASSED")
 
+	if err := checkAnalytics(cb.GetAnalytics()); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -381,4 +388,38 @@ func checkEvents(tei *testEventInfo, wantState string, wantFail bool) error {
 	tei.failed = false
 
 	return nil
+}
+
+func checkAnalytics(anlcts *Analytics) error {
+	wantedRequestSent := 14
+	wantedFallbackCalls := 10
+	wantedTotalCalls := 24
+	wantedTotalFailures := 3
+	wantedSuccessRate := 78
+	wantedFailRate := 21
+
+	if anlcts.RequestSent != wantedRequestSent {
+		return fmt.Errorf("Invalid request sent number, wanted:%d, got:%d", wantedRequestSent, anlcts.RequestSent)
+	}
+	if anlcts.FallbackCalls != wantedFallbackCalls {
+		return fmt.Errorf("Invalid fallback calls, wanted:%d , got:%d", wantedFallbackCalls, anlcts.FallbackCalls)
+	}
+	if anlcts.TotalCalls != wantedTotalCalls {
+		return fmt.Errorf("Invalid total calls, wanted:%d , got:%d", wantedTotalCalls, anlcts.TotalCalls)
+	}
+	if anlcts.TotalFailures != wantedTotalFailures {
+		return fmt.Errorf("Invalid total failures, wanted:%d , got:%d", wantedTotalFailures, anlcts.TotalFailures)
+	}
+
+	sr := int(math.Floor(anlcts.SuccessRate))
+	fr := int(math.Floor(anlcts.FailureRate))
+	if sr != wantedSuccessRate {
+		return fmt.Errorf("Invalid success rate , wanted:%d , got:%d", wantedSuccessRate, sr)
+	}
+	if fr != wantedFailRate {
+		return fmt.Errorf("Invalid failure rate , wanted:%d , got:%d", wantedFailRate, fr)
+	}
+
+	return nil
+
 }

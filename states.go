@@ -57,8 +57,4 @@ func (c *CircuitBreaker) updateFailData() {
 	now := time.Now()
 	c.lastFailed = &now
 	c.failCount++
-
-	if c.analytics != nil {
-		c.analytics.TotalFailures++
-	}
 }

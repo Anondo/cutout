@@ -47,37 +47,24 @@ func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, 
 
 	switch c.state {
 	case ClosedState, HalfOpenState:
+		reqTimeForAnlcts := time.Now()
 		resp, err = req.makeRequest()
 		if err != nil {
 			c.updateFailData()
-			if c.analytics != nil {
-				c.analytics.Failures = append(c.analytics.Failures, Failure{
-					Message:       err.Error(),
-					OccurredAt:    time.Now(),
-					TotalFailures: c.analytics.TotalFailures + 1,
-				})
-			}
+			c.updateAnalyticsFailure(err.Error())
 		} else {
-			if c.analytics != nil {
-				c.analytics.RequestSent++
-			}
 			c.resetCircuit()
 		}
+		c.updateAnalyticsRequestAndResponse(req.URL, req.Method, reqTimeForAnlcts, resp)
 	case OpenState:
 		resp, err = executeFallbacks(fallbackFuncs)
 		if err != nil {
 			return resp, err
 		}
-		if c.analytics != nil {
-			c.analytics.FallbackCalls++
-		}
+		c.addAnalyticsFallbackCount()
 	}
 
-	if c.analytics != nil {
-		c.analytics.TotalCalls++
-		c.analytics.SuccessRate = float64(c.analytics.RequestSent+c.analytics.FallbackCalls) / float64(c.analytics.TotalCalls) * 100
-		c.analytics.FailureRate = 100 - c.analytics.SuccessRate
-	}
+	c.updateAnalyticsRates()
 
 	return resp, err
 }
@@ -119,18 +106,24 @@ func (c *CircuitBreaker) CallWithCustomRequest(req *http.Request, allowedStatus 
 
 	switch c.state {
 	case ClosedState, HalfOpenState:
+		reqTimeForAnlcts := time.Now()
 		resp, err = makeCustomRequest(req, allowedStatus)
 		if err != nil {
 			c.updateFailData()
+			c.updateAnalyticsFailure(err.Error())
 		} else {
 			c.resetCircuit()
 		}
+		c.updateAnalyticsRequestAndResponse(req.URL.String(), req.Method, reqTimeForAnlcts, resp)
 	case OpenState:
 		resp, err = executeFallbacks(fallbackFuncs)
 		if err != nil {
 			return resp, err
 		}
+		c.addAnalyticsFallbackCount()
 	}
+
+	c.updateAnalyticsRates()
 
 	return resp, err
 }
