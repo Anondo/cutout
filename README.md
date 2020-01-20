@@ -14,6 +14,7 @@ Cutout comes with features like:
 1. Multilevel fallback functions(in case even the fallback fails)
 1. Custom BackOff function on the request level for generating backoff timeout logics
 1. Event channel to capture events like State change or failure detection
+1. Get analytical data on the circuit breaker
 
 ### Installing
 ```console
@@ -86,7 +87,7 @@ func thehandler(w http.ResponseWriter, r *http.Request) {
 
 ```
 
-For more details, see the documentation and examples.
+For more details, see the [docs](https://godoc.org/github.com/Anondo/cutout) and [examples](examples/).
 
 
 ### Contributing

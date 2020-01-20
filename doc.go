@@ -69,5 +69,5 @@
 // 	 }
 //  }
 //
-// For more details, see the documentation and examples.
+// See https://github.com/Anondo/cutout/examples.
 package cutout
