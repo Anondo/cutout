@@ -16,4 +16,4 @@ notifications:
   email: true
 
 script:
-  - go test -v -race -count=1 .
+  - go test -v -count=1 .
