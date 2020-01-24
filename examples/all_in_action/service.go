@@ -60,6 +60,9 @@ func getPingFromService() (*pingResponse, error) {
 		RequestBody:   nil,
 		AllowedStatus: []int{http.StatusOK},
 		TimeOut:       10 * time.Second,
+		BackOff: func(t time.Duration) time.Duration {
+			return time.Duration(int(t/time.Second)*5) * time.Second
+		},
 	}
 
 	resp, err := cb.Call(pingRequest, fallBackFunc)
