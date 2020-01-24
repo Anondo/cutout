@@ -13,6 +13,7 @@ type CircuitBreaker struct {
 	state             string
 	lastFailed        *time.Time
 	failCount         int
+	analytics         *Analytics
 }
 
 // NewCircuitBreaker creates a new circuit breaker
@@ -46,18 +47,24 @@ func (c *CircuitBreaker) Call(req *Request, fallbackFuncs ...func() (*Response, 
 
 	switch c.state {
 	case ClosedState, HalfOpenState:
+		reqTimeForAnlcts := time.Now()
 		resp, err = req.makeRequest()
 		if err != nil {
 			c.updateFailData()
+			c.updateAnalyticsFailure(err.Error())
 		} else {
 			c.resetCircuit()
 		}
+		c.updateAnalyticsRequestAndResponse(req.URL, req.Method, reqTimeForAnlcts, resp)
 	case OpenState:
 		resp, err = executeFallbacks(fallbackFuncs)
 		if err != nil {
 			return resp, err
 		}
+		c.addAnalyticsFallbackCount()
 	}
+
+	c.updateAnalyticsRates()
 
 	return resp, err
 }
@@ -99,18 +106,24 @@ func (c *CircuitBreaker) CallWithCustomRequest(req *http.Request, allowedStatus 
 
 	switch c.state {
 	case ClosedState, HalfOpenState:
+		reqTimeForAnlcts := time.Now()
 		resp, err = makeCustomRequest(req, allowedStatus)
 		if err != nil {
 			c.updateFailData()
+			c.updateAnalyticsFailure(err.Error())
 		} else {
 			c.resetCircuit()
 		}
+		c.updateAnalyticsRequestAndResponse(req.URL.String(), req.Method, reqTimeForAnlcts, resp)
 	case OpenState:
 		resp, err = executeFallbacks(fallbackFuncs)
 		if err != nil {
 			return resp, err
 		}
+		c.addAnalyticsFallbackCount()
 	}
+
+	c.updateAnalyticsRates()
 
 	return resp, err
 }

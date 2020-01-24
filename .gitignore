@@ -1,1 +1,5 @@
 .DS_Store
+
+# the binary files for the examples
+/examples/simple/simple
+/examples/all_in_action/all_in_action
