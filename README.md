@@ -1,6 +1,6 @@
 # Cutout
 
-[![Build Status](https://travis-ci.org/Anondo/cutout.svg?branch=master)](https://travis-ci.org/Anondo/cutout)
+[![Build Status](https://travis-ci.org/Anondo/cutout.svg?branch=master)](https://travis-ci.com/Anondo/cutout)
 [![License](https://img.shields.io/dub/l/vibe-d.svg)](LICENSE)
 [![Project status](https://img.shields.io/badge/version-1.0.0-green.svg)](https://github.com/Anondo/cutout/releases)
 [![GoDoc](https://godoc.org/github.com/Anondo/cutout?status.svg)](https://godoc.org/github.com/Anondo/cutout)
